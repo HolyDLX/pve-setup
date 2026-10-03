@@ -2,13 +2,66 @@
 
 printf 'starting up...\n'
 
+UPLINK_INTERFACE="{{UPLINK_INTERFACE}}"
+
 while true; do
-    HOST_IP=$(ip -4 addr show {{UPLINK_INTERFACE}} | awk '/inet / {print $2}' | cut -d/ -f1)
-    MEMORY=$(free -h | awk 'NR==2 {printf "%s used / %s total", $3, $2}')
-    DISK=$(df -h / | awk 'NR==2 {printf "%s used / %s total (%s)", $3, $2, $5}')
-    CONTAINERS=$(pct list | awk 'NR > 1 {
-        printf "  %-6s %-20s %-10s\n", $1, $3, $2
-    }')
+    HOST_IP=$(
+        ip -4 addr show "$UPLINK_INTERFACE" 2>/dev/null \
+            | awk '/inet / {print $2}' \
+            | cut -d/ -f1
+    )
+
+    MEMORY=$(
+        free -h \
+            | awk 'NR==2 {printf "%s used / %s total", $3, $2}'
+    )
+
+    DISK=$(
+        df -h / \
+            | awk 'NR==2 {printf "%s used / %s total (%s)", $3, $2, $5}'
+    )
+
+    CONTAINERS=$(
+        pct list \
+            | awk 'NR > 1 {
+                printf "  %-6s %-20s %-10s\n", $1, $3, $2
+            }'
+    )
+
+    INTERFACE_STATE=$(
+        cat "/sys/class/net/$UPLINK_INTERFACE/operstate" 2>/dev/null \
+            || echo "unknown"
+    )
+
+    NETWORK_TYPE="Ethernet"
+    SSID=""
+
+    if [[ -d "/sys/class/net/$UPLINK_INTERFACE/wireless" ]]; then
+        NETWORK_TYPE="Wi-Fi"
+
+        if command -v iw >/dev/null 2>&1; then
+            SSID=$(
+                iw dev "$UPLINK_INTERFACE" link 2>/dev/null \
+                    | sed -n 's/^[[:space:]]*SSID: //p'
+            )
+        fi
+
+        if [[ -z "$SSID" ]]; then
+            SSID="Not connected"
+        fi
+    fi
+
+    NETWORK_DETAILS=$(cat <<EOF
+Interface: $UPLINK_INTERFACE
+Type:      $NETWORK_TYPE
+State:     $INTERFACE_STATE
+IP:        ${HOST_IP:-N/A}
+EOF
+)
+
+    if [[ "$NETWORK_TYPE" == "Wi-Fi" ]]; then
+        NETWORK_DETAILS+=$'\n'"SSID:      $SSID"
+    fi
 
     OUTPUT=$(cat <<EOF
 ============================================================
@@ -16,8 +69,10 @@ while true; do
 ============================================================
 
 Host:      $(hostname)
-IP:        ${HOST_IP:-N/A}
 Web UI:    https://${HOST_IP:-N/A}:8006/
+
+Network:
+$NETWORK_DETAILS
 
 Memory:
   $MEMORY
@@ -31,6 +86,7 @@ $CONTAINERS
 
 Updated: $(date)
 
+Login console: Ctrl+Alt+F2
 EOF
 )
 
