@@ -1,0 +1,20 @@
+#!/bin/sh
+
+[ "${IFACE:-}" = "{{UPLINK_INTERFACE}}" ] || exit 0
+
+iptables -t nat -D PREROUTING \
+    -i {{UPLINK_INTERFACE}} \
+    -p tcp \
+    --dport {{PAPERLESS_PORT}} \
+    -j DNAT \
+    --to-destination {{PAPERLESS_IP}}:{{PAPERLESS_PORT}} \
+    2>/dev/null || true
+
+iptables -D FORWARD \
+    -i {{UPLINK_INTERFACE}} \
+    -o vmbr0 \
+    -p tcp \
+    -d {{PAPERLESS_IP}} \
+    --dport {{PAPERLESS_PORT}} \
+    -j ACCEPT \
+    2>/dev/null || true
