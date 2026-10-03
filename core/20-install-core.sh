@@ -83,7 +83,7 @@ echo "  [OK] Removed installer-generated bridge configuration"
 echo
 echo "Building core package..."
 
-PACKAGE="$("$SCRIPT_DIR/build-package.sh")"
+PACKAGE="$("$SCRIPT_DIR/_build-package.sh")"
 
 if [[ ! -f "$PACKAGE" ]]; then
     echo "ERROR: Package build did not produce:"

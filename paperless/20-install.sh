@@ -86,7 +86,7 @@ else
     echo
     echo "Creating and installing Paperless LXC..."
 
-    "$SCRIPT_DIR/install-lxc.sh"
+    "$SCRIPT_DIR/_install-lxc.sh"
 fi
 
 
@@ -142,7 +142,7 @@ echo "  [OK] /opt/paperless/storage"
 echo
 echo "Building Paperless host package..."
 
-PACKAGE="$("$SCRIPT_DIR/build-package.sh")"
+PACKAGE="$("$SCRIPT_DIR/_build-package.sh")"
 
 if [[ ! -f "$PACKAGE" ]]; then
     echo "ERROR: Package build did not produce:"
