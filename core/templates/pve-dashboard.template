@@ -1,0 +1,39 @@
+#!/bin/bash
+
+printf 'starting up...\n'
+
+while true; do
+    HOST_IP=$(ip -4 addr show {{UPLINK_INTERFACE}} | awk '/inet / {print $2}' | cut -d/ -f1)
+    MEMORY=$(free -h | awk 'NR==2 {printf "%s used / %s total", $3, $2}')
+    DISK=$(df -h / | awk 'NR==2 {printf "%s used / %s total (%s)", $3, $2, $5}')
+    CONTAINERS=$(pct list | awk 'NR > 1 {
+        printf "  %-6s %-20s %-10s\n", $1, $3, $2
+    }')
+
+    OUTPUT=$(cat <<EOF
+============================================================
+                 Proxmox Virtual Environment
+============================================================
+
+Host:      $(hostname)
+IP:        ${HOST_IP:-N/A}
+Web UI:    https://${HOST_IP:-N/A}:8006/
+
+Memory:
+  $MEMORY
+
+Disk:
+  $DISK
+
+LXC Containers:
+  ID     NAME                 STATUS
+$CONTAINERS
+
+Updated: $(date)
+
+EOF
+)
+
+    printf '\033[H\033[J%s\n' "$OUTPUT"
+    sleep 10
+done
