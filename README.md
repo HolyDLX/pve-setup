@@ -1,191 +1,281 @@
 # Proxmox Setup
 
-This repository is used to reproduce the configuration of a Proxmox host and selected hosted services.
+Template-driven setup repository for reproducible Proxmox VE host configuration and optional service modules.
 
-The repository is template-driven. Machine-specific values are collected during installation and stored in local configuration files that are excluded from Git.
+The repository separates shared host configuration, core system setup, networking, reusable templates, and independent service modules.
 
-## Structure
+Machine-specific configuration is stored in local `config.local` files and is not committed.
+
+## Repository Structure
 
 ```text
-pve-setup/
-├── .gitignore
+.
 ├── config.local
-├── core/
+├── core
+│   ├── add_additional_wifi.sh
+│   ├── config.local
 │   ├── configure.sh
 │   ├── install-core.sh
-│   ├── install-wifi.sh
 │   ├── install-eth.sh
-│   └── templates/
-├── example-service/
-│   ├── install.sh
-│   ├── install-lxc.sh
+│   ├── install-wifi.sh
+│   ├── update.sh
+│   └── templates
+│       ├── 10-vmbr0.template
+│       ├── getty-tty1-override.conf
+│       └── pve-dashboard.template
+├── example-service
 │   ├── config.local
-│   └── templates/
-└── ...
+│   ├── install.sh
+│   └── templates
+└── README.md
 ```
 
-## Core
+## Configuration
 
-`core/` contains configuration that belongs to the Proxmox host itself.
+The root-level `config.local` contains machine-specific values shared across modules.
 
-The intended workflow is:
+Example:
+
+```bash
+UPLINK_INTERFACE="wlp0s20f3"
+HOST_ADDRESS="192.168.1.50/24"
+HOST_GATEWAY="192.168.1.1"
+
+VM_BRIDGE="vmbr0"
+VM_NETWORK="10.10.10.0/24"
+VM_GATEWAY="10.10.10.1"
+```
+
+Create or update it with:
 
 ```bash
 ./core/configure.sh
+```
+
+Modules may maintain their own local configuration, for example:
+
+```text
+core/config.local
+example-service/config.local
+```
+
+These files contain settings that belong only to that module.
+
+All local configuration files should be ignored by Git:
+
+```gitignore
+**/config.local
+```
+
+## Fresh Installation
+
+After installing Proxmox VE, copy this repository to the host.
+
+For example:
+
+```text
+/root/pve-setup
+```
+
+If the repository was copied through a filesystem that does not preserve executable permissions:
+
+```bash
+chmod +x core/*.sh
+```
+
+Then configure the host:
+
+```bash
+cd /root/pve-setup
+./core/configure.sh
+```
+
+Choose the appropriate uplink installer:
+
+```bash
 ./core/install-wifi.sh
-./core/install-core.sh
 ```
 
-or, for an Ethernet-connected host:
+or:
 
 ```bash
-./core/configure.sh
 ./core/install-eth.sh
+```
+
+Finally install the core configuration:
+
+```bash
 ./core/install-core.sh
 ```
 
-`configure.sh` collects shared host-specific values and writes them to the top-level:
+Reboot afterwards to apply the persistent network configuration.
+
+## Networking
+
+The setup uses a physical uplink for host management and a separate internal bridge for guests.
+
+Conceptually:
 
 ```text
-config.local
+Physical network
+       │
+       ▼
+Host uplink
+       │
+       │ NAT
+       ▼
+Internal bridge
+       │
+       ├── VM
+       ├── LXC
+       └── VM
 ```
 
-This file is not committed to Git.
+The physical uplink receives the host's LAN address.
 
-The network-specific installers configure the selected uplink.
+The internal bridge uses a separate private subnet and provides networking for virtual machines and containers.
 
-`install-core.sh` then renders and installs the generic Proxmox host configuration using the values from `config.local`.
+This arrangement also works with Wi-Fi uplinks, where normal Layer-2 bridging of guest MAC addresses is generally unsuitable.
 
-## Service Modules
+## Wi-Fi Bootstrap
 
-Hosted services should be kept in separate modules.
+A fresh Proxmox installation may not contain the tools required for Wi-Fi operation.
 
-A service module may contain:
+`core/install-wifi.sh` can temporarily use a wired connection to install the required dependencies before configuring the permanent Wi-Fi uplink.
+
+Temporary bootstrap values are stored in:
 
 ```text
-example-service/
-├── install.sh
-├── install-lxc.sh
-├── config.local
-└── templates/
+core/config.local
 ```
 
-The public entry point should normally be:
+and reused as defaults during later runs.
+
+This allows repeated setup attempts without re-entering the same temporary networking information.
+
+## Multiple Wi-Fi Networks
+
+Additional known Wi-Fi networks can be configured with:
 
 ```bash
-./example-service/install.sh
+./core/add_additional_wifi.sh
 ```
 
-A service installer may:
+Each known SSID can use its own IP configuration.
 
-- collect service-specific settings
-- store them in a local ignored configuration file
-- create and configure an LXC container
-- install software inside the container
-- install host-side networking or other integration
-- enable required services and startup behavior
+For example:
 
-Internal helper scripts such as `install-lxc.sh` do not normally need to be invoked directly.
+```text
+Network A
+    static address
+
+Network B
+    DHCP
+```
+
+The system can then connect automatically to whichever configured network is available.
+
+Network selection is handled by the Wi-Fi subsystem, while the corresponding IP configuration is applied when the connection changes.
+
+## Core Installation
+
+`core/install-core.sh` installs the persistent host configuration.
+
+Its responsibilities include:
+
+- installing the internal guest bridge
+- applying template-based system configuration
+- installing the tty1 status dashboard
+- configuring the dashboard service
+- establishing the intended host network layout
+
+The physical uplink and internal bridge must use different addresses and subnets.
+
+## Updating Core Templates
+
+Changes to core templates can be applied without repeating the full installation:
+
+```bash
+./core/update.sh
+```
+
+This re-renders and installs the current templates while leaving bootstrap and first-install logic untouched.
+
+## tty1 Dashboard
+
+The first virtual terminal displays a live host status dashboard.
+
+Depending on the configured uplink, it can show information such as:
+
+- hostname
+- Web UI address
+- uplink interface
+- interface state
+- current IP address
+- current Wi-Fi SSID
+- memory usage
+- disk usage
+- guest status
+
+A normal login console remains available on another virtual terminal.
 
 ## Templates
 
-Reusable configuration belongs in `templates/`.
+Templates are stored inside each module's `templates/` directory.
 
-Templates may contain placeholders such as:
+They may contain placeholders such as:
 
 ```text
 {{UPLINK_INTERFACE}}
 {{VM_BRIDGE}}
-{{SERVICE_IP}}
-{{SERVICE_PORT}}
+{{VM_NETWORK}}
+{{VM_GATEWAY}}
 ```
 
-Installation scripts render these templates using machine-specific or service-specific configuration.
+Installation and update scripts render these using the appropriate local configuration.
 
-Rendered files are installed directly into their final locations on the host.
+The repository templates are the source of truth.
 
-The repository therefore stores the intended configuration rather than copies of the currently installed files.
+Generated host-specific files are not copied back into the repository.
 
-## Local Configuration
+## Service Modules
 
-The top-level `config.local` contains settings shared by the host and service modules.
+Additional services should be implemented as independent modules.
 
-Example values may include:
-
-```text
-UPLINK_INTERFACE
-HOST_ADDRESS
-HOST_GATEWAY
-VM_BRIDGE
-VM_NETWORK
-VM_GATEWAY
-```
-
-Individual service modules may also create their own `config.local` files for service-specific values.
-
-These files should be excluded from Git.
-
-## Secrets
-
-Secrets must not be committed to this repository.
-
-Examples include:
-
-- passwords
-- Wi-Fi credentials
-- private keys
-- API tokens
-- database credentials
-- application secret keys
-
-Installers should either prompt for secrets when needed or generate them automatically.
-
-Sensitive configuration files created during installation should remain local to the machine.
-
-## Fresh Installation
-
-The intended recovery or deployment workflow is:
-
-1. Install Proxmox.
-2. Copy or clone this repository onto the host.
-3. Configure the host:
-   ```bash
-   ./core/configure.sh
-   ```
-4. Install the selected uplink:
-   ```bash
-   ./core/install-wifi.sh
-   ```
-   or:
-   ```bash
-   ./core/install-eth.sh
-   ```
-5. Install the common host configuration:
-   ```bash
-   ./core/install-core.sh
-   ```
-6. Install the required service modules:
-   ```bash
-   ./example-service/install.sh
-   ```
-7. Reboot and verify the installation.
-
-The goal is for a clean Proxmox installation to be reproducible using only this repository plus the required machine-specific and secret values.
-
-## Adding a New Service
-
-New services should normally receive their own module:
+A typical module may contain:
 
 ```text
-new-service/
+example-service/
+├── config.local
 ├── install.sh
 ├── install-lxc.sh
-├── config.local
 └── templates/
 ```
 
-Generic Proxmox host configuration belongs in `core`.
+Service-specific networking, configuration, and installation logic should remain inside the corresponding module.
 
-Service-specific configuration belongs in the corresponding service module.
+The core setup should not depend on any individual service module.
 
-Modules should rely on the shared top-level `config.local` for common host/network information instead of asking for the same values repeatedly.
+## Secrets
+
+Secrets should not be committed.
+
+Examples include:
+
+- Wi-Fi credentials
+- generated application secrets
+- database passwords
+- service credentials
+
+Secrets should remain in generated host configuration, protected local files, or other appropriate secret storage.
+
+## Design Principles
+
+- `core/` contains general host configuration only.
+- Service-specific behavior belongs in independent modules.
+- Templates describe the intended system configuration.
+- Machine-specific settings live in ignored `config.local` files.
+- Secrets are not committed.
+- Installation scripts automate first-time setup.
+- Update scripts reapply templates without repeating bootstrap work.
+- The repository should remain usable from a clean Proxmox VE installation.
