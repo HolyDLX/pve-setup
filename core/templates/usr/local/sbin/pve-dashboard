@@ -3,6 +3,7 @@
 printf 'starting up...\n'
 
 UPLINK_INTERFACE="{{UPLINK_INTERFACE}}"
+TTYMONITOR_DIR="/etc/pve-setup/ttymonitor.d"
 
 while true; do
     HOST_IP=$(
@@ -63,6 +64,29 @@ EOF
         NETWORK_DETAILS+=$'\n'"SSID:      $SSID"
     fi
 
+    SERVICES=""
+
+    if [[ -d "$TTYMONITOR_DIR" ]]; then
+        for MONITOR in "$TTYMONITOR_DIR"/*; do
+            [[ -f "$MONITOR" && -x "$MONITOR" ]] || continue
+
+            MONITOR_OUTPUT=$(
+                timeout 3 "$MONITOR" 2>/dev/null || true
+            )
+
+            if [[ -n "$MONITOR_OUTPUT" ]]; then
+                while IFS= read -r line; do
+                    [[ -n "$line" ]] || continue
+                    SERVICES+="  $line"$'\n'
+                done <<< "$MONITOR_OUTPUT"
+            fi
+        done
+    fi
+
+    if [[ -z "$SERVICES" ]]; then
+        SERVICES="  No service monitors installed"$'\n'
+    fi
+
     OUTPUT=$(cat <<EOF
 ============================================================
                  Proxmox Virtual Environment
@@ -83,6 +107,9 @@ Disk:
 LXC Containers:
   ID     NAME                 STATUS
 $CONTAINERS
+
+Services:
+${SERVICES%$'\n'}
 
 Updated: $(date)
 
