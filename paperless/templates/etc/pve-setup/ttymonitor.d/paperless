@@ -1,0 +1,50 @@
+#!/bin/bash
+set -u
+
+PAPERLESS_CTID="{{PAPERLESS_CTID}}"
+PAPERLESS_IP="{{PAPERLESS_IP}}"
+PAPERLESS_PORT="{{PAPERLESS_PORT}}"
+
+#
+# Report container state separately from HTTP health. This distinguishes a
+# stopped or missing LXC from a running guest where Paperless itself is down.
+#
+
+if ! command -v pct >/dev/null 2>&1; then
+    echo "Paperless: UNKNOWN (pct unavailable)"
+    exit 0
+fi
+
+if ! pct status "$PAPERLESS_CTID" >/dev/null 2>&1; then
+    echo "Paperless: DOWN (LXC $PAPERLESS_CTID missing)"
+    exit 0
+fi
+
+LXC_STATUS=$(
+    pct status "$PAPERLESS_CTID" 2>/dev/null \
+        | awk '{print $2}'
+)
+
+if [[ "$LXC_STATUS" != "running" ]]; then
+    echo "Paperless: DOWN (LXC $PAPERLESS_CTID $LXC_STATUS)"
+    exit 0
+fi
+
+#
+# Check Paperless through its private LXC address rather than through the LAN
+# port-forward. This reports application health independently of forwarding.
+#
+
+if curl \
+    --silent \
+    --show-error \
+    --fail \
+    --location \
+    --max-time 2 \
+    --output /dev/null \
+    "http://${PAPERLESS_IP}:${PAPERLESS_PORT}/"
+then
+    echo "Paperless: UP"
+else
+    echo "Paperless: DOWN (HTTP unavailable)"
+fi

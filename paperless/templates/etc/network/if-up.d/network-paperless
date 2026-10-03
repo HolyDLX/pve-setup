@@ -1,0 +1,38 @@
+#!/bin/sh
+set -e
+
+[ "${IFACE:-}" = "{{UPLINK_INTERFACE}}" ] || exit 0
+
+#
+# Avoid duplicate rules when this hook is called more than once.
+#
+
+iptables -t nat -C PREROUTING \
+    -i {{UPLINK_INTERFACE}} \
+    -p tcp \
+    --dport {{PAPERLESS_PORT}} \
+    -j DNAT \
+    --to-destination {{PAPERLESS_IP}}:{{PAPERLESS_PORT}} \
+    2>/dev/null || \
+iptables -t nat -A PREROUTING \
+    -i {{UPLINK_INTERFACE}} \
+    -p tcp \
+    --dport {{PAPERLESS_PORT}} \
+    -j DNAT \
+    --to-destination {{PAPERLESS_IP}}:{{PAPERLESS_PORT}}
+
+iptables -C FORWARD \
+    -i {{UPLINK_INTERFACE}} \
+    -o {{VM_BRIDGE}} \
+    -p tcp \
+    -d {{PAPERLESS_IP}} \
+    --dport {{PAPERLESS_PORT}} \
+    -j ACCEPT \
+    2>/dev/null || \
+iptables -A FORWARD \
+    -i {{UPLINK_INTERFACE}} \
+    -o {{VM_BRIDGE}} \
+    -p tcp \
+    -d {{PAPERLESS_IP}} \
+    --dport {{PAPERLESS_PORT}} \
+    -j ACCEPT

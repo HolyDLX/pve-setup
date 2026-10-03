@@ -12,7 +12,7 @@ iptables -t nat -D PREROUTING \
 
 iptables -D FORWARD \
     -i {{UPLINK_INTERFACE}} \
-    -o vmbr0 \
+    -o {{VM_BRIDGE}} \
     -p tcp \
     -d {{PAPERLESS_IP}} \
     --dport {{PAPERLESS_PORT}} \

@@ -28,6 +28,16 @@ DEFAULT_IP="10.10.10.10"
 DEFAULT_PORT=8000
 DEFAULT_HOSTNAME="paperless"
 
+if [[ -f "$PAPERLESS_CONFIG" ]]; then
+    # shellcheck source=/dev/null
+    source "$PAPERLESS_CONFIG"
+
+    DEFAULT_CTID="${PAPERLESS_CTID:-$DEFAULT_CTID}"
+    DEFAULT_IP="${PAPERLESS_IP:-$DEFAULT_IP}"
+    DEFAULT_PORT="${PAPERLESS_PORT:-$DEFAULT_PORT}"
+    DEFAULT_HOSTNAME="${PAPERLESS_HOSTNAME:-$DEFAULT_HOSTNAME}"
+fi
+
 read -r -p "Container ID [$DEFAULT_CTID]: " PAPERLESS_CTID
 PAPERLESS_CTID="${PAPERLESS_CTID:-$DEFAULT_CTID}"
 
@@ -49,37 +59,67 @@ EOF
 
 chmod 600 "$PAPERLESS_CONFIG"
 
+
+#
+# ---------------------------------------------------------------------------
+# Guest installation
+# ---------------------------------------------------------------------------
+#
+# The guest is provisioned only once. Re-running this script rebuilds and
+# upgrades the host-side package without recreating an existing LXC.
+#
+
+if pct status "$PAPERLESS_CTID" &>/dev/null; then
+    echo
+    echo "Container $PAPERLESS_CTID already exists."
+    echo "Skipping guest installation."
+else
+    echo
+    echo "Creating and installing Paperless LXC..."
+
+    "$SCRIPT_DIR/install-lxc.sh"
+fi
+
+
+#
+# ---------------------------------------------------------------------------
+# Build package
+# ---------------------------------------------------------------------------
+#
+
 echo
-echo "Creating and installing Paperless LXC..."
+echo "Building Paperless host package..."
 
-"$SCRIPT_DIR/install-lxc.sh"
+PACKAGE="$("$SCRIPT_DIR/build-package.sh")"
 
-echo
-echo "Installing host-side network forwarding..."
+if [[ ! -f "$PACKAGE" ]]; then
+    echo "ERROR: Package build did not produce:"
+    echo "  $PACKAGE"
+    exit 1
+fi
 
-render() {
-    local src="$1"
-    local dst="$2"
+echo "  [OK] $PACKAGE"
 
-    sed \
-        -e "s|{{UPLINK_INTERFACE}}|${UPLINK_INTERFACE}|g" \
-        -e "s|{{PAPERLESS_IP}}|${PAPERLESS_IP}|g" \
-        -e "s|{{PAPERLESS_PORT}}|${PAPERLESS_PORT}|g" \
-        "$src" > "$dst"
 
-    chmod 0755 "$dst"
-}
-
-render \
-    "$SCRIPT_DIR/templates/network-paperless-up.template" \
-    /etc/network/if-up.d/network-paperless
-
-render \
-    "$SCRIPT_DIR/templates/network-paperless-down.template" \
-    /etc/network/if-down.d/network-paperless
+#
+# ---------------------------------------------------------------------------
+# Install / upgrade package
+# ---------------------------------------------------------------------------
+#
 
 echo
+echo "Installing Paperless host package..."
+
+apt install -y "$PACKAGE"
+
+
+echo
+echo "============================================================"
 echo "Paperless installation complete."
+echo "============================================================"
+echo
+echo "Installed package:"
+dpkg-query -W -f='  ${Package} ${Version}\n' pve-setup-paperless
 echo
 echo "Container:"
 echo "  CT ID:     $PAPERLESS_CTID"
