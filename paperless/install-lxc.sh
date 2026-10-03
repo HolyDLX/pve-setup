@@ -22,7 +22,7 @@ if [[ ! -f "$PAPERLESS_CONFIG" ]]; then
     echo "Missing:"
     echo "  $PAPERLESS_CONFIG"
     echo
-    echo "Run ./paperless/install.sh instead."
+    echo "Run ./paperless/configure.sh first."
     exit 1
 fi
 
@@ -118,6 +118,8 @@ pct create "$PAPERLESS_CTID" "$TEMPLATE_REF" \
     --rootfs "${ROOTFS_STORAGE}:${DISK_GB}" \
     --features nesting=1,keyctl=1 \
     --net0 "name=eth0,bridge=${VM_BRIDGE},ip=${PAPERLESS_IP}/24,gw=${VM_GATEWAY}" \
+    --mp0 "${PAPERLESS_CONSUME_HOST_PATH},mp=/opt/paperless/consume" \
+    --mp1 "${PAPERLESS_STORAGE_HOST_PATH},mp=/opt/paperless/storage" \
     --onboot 1
 
 pct start "$PAPERLESS_CTID"
@@ -158,7 +160,9 @@ echo "Preparing Paperless..."
 pct exec "$PAPERLESS_CTID" -- mkdir -p \
     /opt/paperless \
     /opt/paperless/consume \
-    /opt/paperless/export
+    /opt/paperless/export \
+    /opt/paperless/storage/data \
+    /opt/paperless/storage/media
 
 TMPDIR=$(mktemp -d)
 
@@ -185,6 +189,15 @@ sed -i \
 # on port 8000 inside its Docker container.
 sed -i \
     "s|8000:8000|${PAPERLESS_PORT}:8000|" \
+    "$TMPDIR/docker-compose.yml"
+
+#
+# Keep Paperless application data and document media on the host-backed
+# storage mount rather than in Docker-managed named volumes.
+#
+sed -i \
+    -e 's|      - data:/usr/src/paperless/data|      - ./storage/data:/usr/src/paperless/data|' \
+    -e 's|      - media:/usr/src/paperless/media|      - ./storage/media:/usr/src/paperless/media|' \
     "$TMPDIR/docker-compose.yml"
 
 cat > "$TMPDIR/docker-compose.env" <<EOF

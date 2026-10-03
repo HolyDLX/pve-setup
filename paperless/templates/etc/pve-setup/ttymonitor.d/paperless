@@ -44,7 +44,7 @@ if curl \
     --output /dev/null \
     "http://${PAPERLESS_IP}:${PAPERLESS_PORT}/"
 then
-    echo "Paperless: UP"
+    echo "Paperless: UP (port ${PAPERLESS_PORT})"
 else
     echo "Paperless: DOWN (HTTP unavailable)"
 fi

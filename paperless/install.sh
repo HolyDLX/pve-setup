@@ -20,44 +20,53 @@ if [[ ! -f "$CORE_CONFIG" ]]; then
     exit 1
 fi
 
+if [[ ! -f "$PAPERLESS_CONFIG" ]]; then
+    echo "Missing Paperless configuration:"
+    echo "  $PAPERLESS_CONFIG"
+    echo
+    echo "Run ./paperless/configure.sh first."
+    exit 1
+fi
+
 # shellcheck source=/dev/null
 source "$CORE_CONFIG"
 
-DEFAULT_CTID=100
-DEFAULT_IP="10.10.10.10"
-DEFAULT_PORT=8000
-DEFAULT_HOSTNAME="paperless"
+# shellcheck source=/dev/null
+source "$PAPERLESS_CONFIG"
 
-if [[ -f "$PAPERLESS_CONFIG" ]]; then
-    # shellcheck source=/dev/null
-    source "$PAPERLESS_CONFIG"
 
-    DEFAULT_CTID="${PAPERLESS_CTID:-$DEFAULT_CTID}"
-    DEFAULT_IP="${PAPERLESS_IP:-$DEFAULT_IP}"
-    DEFAULT_PORT="${PAPERLESS_PORT:-$DEFAULT_PORT}"
-    DEFAULT_HOSTNAME="${PAPERLESS_HOSTNAME:-$DEFAULT_HOSTNAME}"
-fi
+#
+# ---------------------------------------------------------------------------
+# Local host directories
+# ---------------------------------------------------------------------------
+#
+# These directories are bind-mounted into the unprivileged LXC.
+#
+# UID/GID 1000 inside the LXC maps to 101000 on the Proxmox host with the
+# default unprivileged-container ID mapping. Paperless uses UID/GID 1000 for
+# its application files, so the host directories are owned by that mapped ID.
+#
 
-read -r -p "Container ID [$DEFAULT_CTID]: " PAPERLESS_CTID
-PAPERLESS_CTID="${PAPERLESS_CTID:-$DEFAULT_CTID}"
+echo
+echo "Preparing Paperless host directories..."
 
-read -r -p "Container IP [$DEFAULT_IP]: " PAPERLESS_IP
-PAPERLESS_IP="${PAPERLESS_IP:-$DEFAULT_IP}"
+mkdir -p \
+    "$PAPERLESS_CONSUME_HOST_PATH" \
+    "$PAPERLESS_STORAGE_HOST_PATH/data" \
+    "$PAPERLESS_STORAGE_HOST_PATH/media"
 
-read -r -p "Paperless port [$DEFAULT_PORT]: " PAPERLESS_PORT
-PAPERLESS_PORT="${PAPERLESS_PORT:-$DEFAULT_PORT}"
+chown -R 101000:101000 \
+    "$PAPERLESS_CONSUME_HOST_PATH" \
+    "$PAPERLESS_STORAGE_HOST_PATH"
 
-read -r -p "Container hostname [$DEFAULT_HOSTNAME]: " PAPERLESS_HOSTNAME
-PAPERLESS_HOSTNAME="${PAPERLESS_HOSTNAME:-$DEFAULT_HOSTNAME}"
+chmod 0750 \
+    "$PAPERLESS_CONSUME_HOST_PATH" \
+    "$PAPERLESS_STORAGE_HOST_PATH" \
+    "$PAPERLESS_STORAGE_HOST_PATH/data" \
+    "$PAPERLESS_STORAGE_HOST_PATH/media"
 
-cat > "$PAPERLESS_CONFIG" <<EOF
-PAPERLESS_CTID="$PAPERLESS_CTID"
-PAPERLESS_IP="$PAPERLESS_IP"
-PAPERLESS_PORT="$PAPERLESS_PORT"
-PAPERLESS_HOSTNAME="$PAPERLESS_HOSTNAME"
-EOF
-
-chmod 600 "$PAPERLESS_CONFIG"
+echo "  [OK] Consume: $PAPERLESS_CONSUME_HOST_PATH"
+echo "  [OK] Storage: $PAPERLESS_STORAGE_HOST_PATH"
 
 
 #
@@ -79,6 +88,49 @@ else
 
     "$SCRIPT_DIR/install-lxc.sh"
 fi
+
+
+#
+# ---------------------------------------------------------------------------
+# LXC mount points
+# ---------------------------------------------------------------------------
+#
+# mp0 is the recursive Paperless consume directory.
+# mp1 contains Paperless application data and document media.
+#
+
+echo
+echo "Configuring Paperless LXC mount points..."
+
+WAS_RUNNING=false
+
+if [[ "$(pct status "$PAPERLESS_CTID" 2>/dev/null | awk '{print $2}')" == "running" ]]; then
+    WAS_RUNNING=true
+    pct stop "$PAPERLESS_CTID"
+fi
+
+pct set "$PAPERLESS_CTID" \
+    -mp0 "${PAPERLESS_CONSUME_HOST_PATH},mp=/opt/paperless/consume" \
+    -mp1 "${PAPERLESS_STORAGE_HOST_PATH},mp=/opt/paperless/storage"
+
+if $WAS_RUNNING; then
+    pct start "$PAPERLESS_CTID"
+
+    echo "Waiting for container..."
+
+    for _ in $(seq 1 30); do
+        if pct exec "$PAPERLESS_CTID" -- true 2>/dev/null; then
+            break
+        fi
+
+        sleep 1
+    done
+
+    pct exec "$PAPERLESS_CTID" -- true
+fi
+
+echo "  [OK] /opt/paperless/consume"
+echo "  [OK] /opt/paperless/storage"
 
 
 #
@@ -127,3 +179,7 @@ echo "  IP:        $PAPERLESS_IP"
 echo
 echo "Forward:"
 echo "  ${UPLINK_INTERFACE}:${PAPERLESS_PORT} -> ${PAPERLESS_IP}:${PAPERLESS_PORT}"
+echo
+echo "Host paths:"
+echo "  Consume:   $PAPERLESS_CONSUME_HOST_PATH"
+echo "  Storage:   $PAPERLESS_STORAGE_HOST_PATH"
